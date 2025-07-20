@@ -45,7 +45,7 @@ const useAudioEngine = () => {
     });
 
     const hunterSound = useRef({
-        noise: null,
+        laugh: null,
         panner: null,
         filter: null,
     });
@@ -72,12 +72,14 @@ const useAudioEngine = () => {
         synths.current.animal = new Tone.NoiseSynth({ noise: { type: 'brown' }, envelope: { attack: 0.5, decay: 0.2, sustain: 0.1 } }).toDestination();
         synths.current.animal.volume.value = -20;
 
-        // Hunter sound (footsteps)
+        // Hunter sound (using audio file with looping and 3D positioning)
         hunterSound.current.panner = new Tone.Panner(0).toDestination();
         hunterSound.current.filter = new Tone.Filter(400, "lowpass").connect(hunterSound.current.panner);
-        hunterSound.current.noise = new Tone.NoiseSynth({
-            noise: { type: 'white' },
-            envelope: { attack: 0.005, decay: 0.1, sustain: 0 }
+        hunterSound.current.laugh = new Tone.Player({
+            url: "./sounds/evil-laugh.mp3",
+            loop: true,
+            autostart: false,
+            volume: -Infinity // Start silent
         }).connect(hunterSound.current.filter);
 
         // Exit beacon sound
@@ -112,16 +114,23 @@ export default function AudioMazeGame() {
     }, [audioInitialized, synths]);
 
     const playHunterStep = useCallback(() => {
-        if (!audioInitialized.current || !hunterSound.current.noise) return;
-        hunterSound.current.noise.triggerAttack();
+        if (!audioInitialized.current || !hunterSound.current.laugh) return;
+        // Start the looping laugh if it's not already playing
+        if (hunterSound.current.laugh.loaded && hunterSound.current.laugh.state !== 'started') {
+            hunterSound.current.laugh.start();
+        }
     }, [audioInitialized]);
     
     // --- Update Audio Cues based on Game State ---
     useEffect(() => {
         if (status !== 'playing' || !audioInitialized.current) {
             if (exitSound.current.osc) exitSound.current.osc.volume.value = -Infinity;
+            // Stop hunter laugh when game ends
+            if (hunterSound.current.laugh && hunterSound.current.laugh.state === 'started') {
+                hunterSound.current.laugh.stop();
+            }
             return;
-        };
+        }
 
         // --- Hunter Proximity and Direction ---
         const dxHunter = rabbitPos.col - hunterPos.col;
@@ -130,11 +139,24 @@ export default function AudioMazeGame() {
         
         // Panning: -1 is left, 1 is right
         const panHunter = Math.max(-1, Math.min(1, dxHunter / 5));
-        hunterSound.current.panner.pan.rampTo(panHunter, 0.1);
+        if (hunterSound.current.panner) {
+            hunterSound.current.panner.pan.rampTo(panHunter, 0.1);
+        }
 
-        // Volume: louder when closer. Max volume at distance 1.
-        const volumeHunter = -5 - distanceHunter * 3; // dB
-        hunterSound.current.noise.volume.rampTo(volumeHunter, 0.1);
+        // Start the hunter laugh when game is playing
+        if (hunterSound.current.laugh && hunterSound.current.laugh.loaded) {
+            if (hunterSound.current.laugh.state !== 'started') {
+                hunterSound.current.laugh.start();
+            }
+            
+            // Volume based on distance: closer = louder, farther = quieter
+            const maxDistance = 10; // Adjust this value to control max hearing distance
+            const volumeHunter = distanceHunter >= maxDistance 
+                ? -Infinity 
+                : -5 - (distanceHunter * 4); // Gets louder as hunter gets closer
+            
+            hunterSound.current.laugh.volume.rampTo(volumeHunter, 0.2);
+        }
 
         // --- Exit Beacon Proximity and Direction ---
         const dxExit = rabbitPos.col - exitPos.col;
@@ -231,23 +253,35 @@ export default function AudioMazeGame() {
                 setMessage('You escaped! Congratulations!');
                 playSound('win', 'G5', '1s');
                 if (exitSound.current.osc) exitSound.current.osc.volume.value = -Infinity;
+                // Stop hunter laugh
+                if (hunterSound.current.laugh && hunterSound.current.laugh.state === 'started') {
+                    hunterSound.current.laugh.stop();
+                }
             } else if (row === hunterPos.row && col === hunterPos.col) {
                 setStatus('lost');
                 setMessage('The hunter caught you! Game Over.');
                 playSound('lose', 'C2', '2s');
-                 if (exitSound.current.osc) exitSound.current.osc.volume.value = -Infinity;
+                if (exitSound.current.osc) exitSound.current.osc.volume.value = -Infinity;
+                // Stop hunter laugh
+                if (hunterSound.current.laugh && hunterSound.current.laugh.state === 'started') {
+                    hunterSound.current.laugh.stop();
+                }
             } else if (nextTile === 'A') {
                 setStatus('lost');
                 setMessage('You ran into a dangerous animal! Game Over.');
                 playSound('lose', 'D2', '2s');
-                 if (exitSound.current.osc) exitSound.current.osc.volume.value = -Infinity;
+                if (exitSound.current.osc) exitSound.current.osc.volume.value = -Infinity;
+                // Stop hunter laugh
+                if (hunterSound.current.laugh && hunterSound.current.laugh.state === 'started') {
+                    hunterSound.current.laugh.stop();
+                }
             } else {
                  // If game continues, move the hunter
                  moveHunter(newRabbitPos);
             }
         }
 
-    }, [rabbitPos, hunterPos, status, playSound, moveHunter, audioInitialized, initializeAudio, exitSound]);
+    }, [rabbitPos, hunterPos, status, playSound, moveHunter, audioInitialized, initializeAudio, exitSound, hunterSound]);
 
     const restartGame = () => {
         setRabbitPos(findStartPosition('R'));
