@@ -110,7 +110,7 @@ const useAudioEngine = () => {
         });
         
         // Try to use custom water audio file, fallback to synthesized sound
-        const waterAudioUrl = '/river-flow.mp3'; // Place your water audio file in the public folder
+        const waterAudioUrl = '/bell.mp3'; // Place your water audio file in the public folder
         let customWaterPlayer;
         
         try {
@@ -121,16 +121,34 @@ const useAudioEngine = () => {
                 fadeIn: 0.2,
                 fadeOut: 0.2,
                 onload: () => {
-                    console.log('Water sound loaded successfully');
+                    console.log('Bell sound loaded successfully - using custom audio');
                     waterSound.current.isUsingPlayer = true;
+                    // Start the custom audio when loaded
+                    if (!waterSound.current.isPlaying) {
+                        customWaterPlayer.start();
+                        waterSound.current.isPlaying = true;
+                        console.log('Started bell audio');
+                    }
                 },
                 onerror: (error) => {
-                    console.error('Failed to load water sound, using fallback:', error);
+                    console.error('Failed to load bell sound, using fallback brown noise:', error);
                     waterSound.current.isUsingPlayer = false;
+                    // Connect and start fallback noise when custom audio fails
+                    if (!waterSound.current.isPlaying) {
+                        // Disconnect custom player and connect fallback
+                        try {
+                            customWaterPlayer.disconnect();
+                        } catch (e) {
+                            // Ignore disconnect errors
+                        }
+                        waterSound.current.fallbackNoise.connect(waterSound.current.highPassFilter);
+                        waterSound.current.fallbackNoise.start();
+                        waterSound.current.isPlaying = true;
+                        console.log('Started fallback brown noise due to loading error');
+                    }
                 }
             });
             waterSound.current.player = customWaterPlayer;
-            waterSound.current.isUsingPlayer = true;
         } catch (error) {
             console.error('Failed to create water Player, using fallback noise:', error);
             waterSound.current.player = waterSound.current.fallbackNoise;
@@ -154,31 +172,47 @@ const useAudioEngine = () => {
         waterSound.current.panner = new Tone.Panner(0);
         waterSound.current.volume = new Tone.Volume(-14); // Further increased volume control for better initial presence (was -18)
         
-        // Create water audio chain: Player/Noise -> HighPass (2kHz+) -> LowPass (6kHz-) -> Volume -> Panner -> Destination
+        // Create audio chains for both sources but connect only one at a time
+        // Custom player chain
         waterSound.current.player.connect(waterSound.current.highPassFilter);
         waterSound.current.highPassFilter.connect(waterSound.current.lowPassFilter);
         waterSound.current.lowPassFilter.connect(waterSound.current.volume);
         waterSound.current.volume.connect(waterSound.current.panner);
         waterSound.current.panner.toDestination();
         
-        // Also connect fallback noise to the same chain
-        waterSound.current.fallbackNoise.connect(waterSound.current.highPassFilter);
+        // Fallback noise chain (separate, will only be used if custom audio fails)
+        // DON'T connect fallback noise initially - only connect when needed
         
-        // Start the water sound (very quiet initially)
-        try {
-            if (waterSound.current.isUsingPlayer && waterSound.current.player.loaded) {
-                waterSound.current.player.start();
-                waterSound.current.isPlaying = true;
-            } else {
-                // Use fallback noise
+        // Initialize as not playing - audio will start in the onload/onerror callbacks above
+        waterSound.current.isPlaying = false;
+        
+        // Helper function to connect fallback noise when custom audio fails
+        const connectFallbackNoise = () => {
+            // Disconnect custom player first
+            try {
+                waterSound.current.player.disconnect();
+            } catch (e) {
+                // Ignore disconnect errors
+            }
+            
+            // Connect fallback noise to the audio chain
+            waterSound.current.fallbackNoise.connect(waterSound.current.highPassFilter);
+            console.log('Connected fallback brown noise to audio chain');
+        };
+        
+        // If custom audio fails to load, we'll connect the fallback in the onerror callback
+        // For now, only the custom player is connected
+        
+        // Set a timeout to check if custom audio loaded, if not use fallback
+        setTimeout(() => {
+            if (!waterSound.current.isPlaying) {
+                console.log('Custom audio did not load in time, using fallback');
+                connectFallbackNoise();
                 waterSound.current.fallbackNoise.start();
                 waterSound.current.isPlaying = true;
+                waterSound.current.isUsingPlayer = false;
             }
-        } catch (error) {
-            console.error('Error starting water sound, using fallback:', error);
-            waterSound.current.fallbackNoise.start();
-            waterSound.current.isPlaying = true;
-        }
+        }, 2000); // Wait 2 seconds for custom audio to load
         
         // Remove player footstep and danger alert for cleaner spatial audio
 
@@ -285,7 +319,7 @@ export default function AudioMazeGame() {
     const { initializeAudio, synths, hunterSound, exitSound, waterSound, animalSounds, audioInitialized } = useAudioEngine();
 
     // --- Standard Instructions ---
-    const instructions = `Welcome to the Audio Maze Game.\n\nControls:\n- Use the arrow keys to move your character.\n- Press R to restart the game at any time.\n- Press SPACE on this page to hear these instructions aloud.\n\nGoal:\n- Find your way to the exit, guided by the sound of flowing water.\n- Avoid wolves, which growl when you are close.\n\nFor best experience, use headphones. Good luck!`;
+    const instructions = `Welcome to the Audio Maze Game.\n\nControls:\n- Use the arrow keys to move your character.\n- Press R to restart the game at any time.\n- Press SPACE on this page to hear these instructions aloud.\n\nGoal:\n- Find your way to the exit, guided by the sound of a bell.\n- Avoid wolves, which growl when you are close.\n\nFor best experience, use headphones. Good luck!`;
 
     // --- Web Speech API for reading instructions ---
     const speakInstructions = useCallback(() => {
@@ -606,7 +640,7 @@ export default function AudioMazeGame() {
                         </ul>
                         <strong>Goal:</strong>
                         <ul className="list-disc ml-6 mt-2">
-                            <li>Find the exit, guided by the sound of flowing water</li>
+                            <li>Find the exit, guided by the sound of a bell</li>
                             <li>Avoid wolves, which growl when you are close</li>
                         </ul>
                         <span className="block mt-2 text-yellow-300 font-bold">Headphones recommended!</span>
@@ -639,7 +673,7 @@ export default function AudioMazeGame() {
                     <p className="text-white font-bold mb-2">🎮 CONTROLS:</p>
                     <p className="text-yellow-200 mb-1">Arrow Keys = Move • R Key = Restart Game</p>
                     <p className="text-white font-bold mb-2 mt-3">🎧 AUDIO GUIDE:</p>
-                    <p className="text-cyan-200 mb-1">🌊 Water Sound = Direction to Exit</p>
+                    <p className="text-cyan-200 mb-1">🔔 Bell Sound = Direction to Exit</p>
                     <p className="text-red-200 mb-1">🐺 Wolf Growls = Danger (Left/Right Ear)</p>
                     <p className="text-yellow-200 font-bold mt-3">⚠ HEADPHONES REQUIRED FOR SPATIAL AUDIO</p>
                 </div>
