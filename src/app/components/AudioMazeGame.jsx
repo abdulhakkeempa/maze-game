@@ -271,6 +271,10 @@ const useAudioEngine = () => {
 
 // --- Main Game Component ---
 export default function AudioMazeGame() {
+    // --- Start Page State ---
+    const [showStart, setShowStart] = useState(true);
+
+    // --- Game State ---
     const [rabbitPos, setRabbitPos] = useState(findStartPosition('R'));
     const [animalPositions] = useState(findAllAnimals());
     const [exitPos] = useState(findStartPosition('E'));
@@ -280,16 +284,38 @@ export default function AudioMazeGame() {
 
     const { initializeAudio, synths, hunterSound, exitSound, waterSound, animalSounds, audioInitialized } = useAudioEngine();
 
-    // --- Sound Playback Functions ---
+    // --- Standard Instructions ---
+    const instructions = `Welcome to the Audio Maze Game.\n\nControls:\n- Use the arrow keys to move your character.\n- Press R to restart the game at any time.\n- Press SPACE on this page to hear these instructions aloud.\n\nGoal:\n- Find your way to the exit, guided by the sound of flowing water.\n- Avoid wolves, which growl when you are close.\n\nFor best experience, use headphones. Good luck!`;
 
+    // --- Web Speech API for reading instructions ---
+    const speakInstructions = useCallback(() => {
+        if ('speechSynthesis' in window) {
+            window.speechSynthesis.cancel();
+            const utter = new window.SpeechSynthesisUtterance(instructions.replace(/\n/g, ' '));
+            utter.rate = 1.05;
+            utter.pitch = 1.0;
+            utter.lang = 'en-US';
+            window.speechSynthesis.speak(utter);
+        }
+    }, [instructions]);
+
+    // --- Listen for SPACE on start page ---
+    useEffect(() => {
+        if (!showStart) return;
+        const onSpace = (e) => {
+            if (e.code === 'Space') {
+                speakInstructions();
+            }
+        };
+        window.addEventListener('keydown', onSpace);
+        return () => window.removeEventListener('keydown', onSpace);
+    }, [showStart, speakInstructions]);
+
+    // --- Sound Playback Functions ---
     const playSound = useCallback((sound, note, duration) => {
         if (!audioInitialized.current || !synths.current[sound]) return;
         synths.current[sound].triggerAttackRelease(note, duration);
     }, [audioInitialized, synths]);
-
-    const announceDanger = useCallback((distanceLevel, animalIndex) => {
-        // Removed danger alerts - using only animal sounds for cleaner spatial audio
-    }, []);
 
     // Calculate enhanced stereo positioning for clear left/right audio separation
     const calculateSpatialAudio = useCallback((playerPos, targetPos, distance) => {
@@ -298,25 +324,21 @@ export default function AudioMazeGame() {
         const dy = targetPos.row - playerPos.row;
         
         // ENHANCED panning calculation for CLEAR left/right separation
-        // Use the full stereo field and make it more aggressive
-        const panValue = Math.max(-1, Math.min(1, dx / 2)); // More aggressive panning (was dx/3)
-        
-        // Apply stereo boost - make left/right even more pronounced
-        const boostedPan = panValue * 1.5; // Boost the panning effect
+        const panValue = Math.max(-1, Math.min(1, dx / 2));
+        const boostedPan = panValue * 1.5;
         const finalPan = Math.max(-1, Math.min(1, boostedPan));
         
         // Calculate front/back perception using frequency filtering
-        // Objects behind sound more muffled (lower frequency)
-        const frontBackFactor = dy; // Positive = in front, negative = behind
+        const frontBackFactor = dy;
         const filterFreq = frontBackFactor > 0 
-            ? 2000 + (frontBackFactor * 300)  // In front: brighter
-            : 1200 - (Math.abs(frontBackFactor) * 200); // Behind: more muffled
+            ? 2000 + (frontBackFactor * 300)
+            : 1200 - (Math.abs(frontBackFactor) * 200);
         
         // Distance-based reverb for depth perception
-        const reverbWet = Math.min(distance / 8, 0.7); // More reverb = further away
+        const reverbWet = Math.min(distance / 8, 0.7);
         
         return {
-            pan: finalPan, // Use the boosted panning for clear left/right
+            pan: finalPan,
             filterFreq: Math.max(300, Math.min(4000, filterFreq)),
             reverbWet: reverbWet,
             distance: distance
@@ -327,65 +349,47 @@ export default function AudioMazeGame() {
     const updateSpatialAudio = useCallback((animalSound, playerPos, distance) => {
         const spatialParams = calculateSpatialAudio(playerPos, animalSound.position, distance);
         
-        // Update stereo panning with immediate effect for clear left/right
-        animalSound.panner.pan.rampTo(spatialParams.pan, 0.05); // Faster response (was 0.1)
-        
-        // Update filter for front/back perception
+        animalSound.panner.pan.rampTo(spatialParams.pan, 0.05);
         animalSound.filter.frequency.rampTo(spatialParams.filterFreq, 0.2);
-        
-        // Update reverb for distance perception
         animalSound.reverb.wet.rampTo(spatialParams.reverbWet, 0.3);
         
-        // Debug logging to verify panning values
         console.log(`Animal ${animalSound.position.row},${animalSound.position.col}: Pan=${spatialParams.pan.toFixed(2)}, Distance=${distance.toFixed(1)}`);
-        
     }, [calculateSpatialAudio]);
 
-    // River/waterfall guidance system - natural flowing water sound toward exit (2-6 kHz)
+    // River/waterfall guidance system
     const updateWaterSound = useCallback((playerPos, exitPos) => {
         if (!audioInitialized.current || !waterSound.current.isPlaying) return;
         
-        // Calculate direction to exit
         const dx = exitPos.col - playerPos.col;
         const dy = exitPos.row - playerPos.row;
         const distanceToExit = Math.sqrt(dx * dx + dy * dy);
         
-        // Calculate water direction (panning toward exit - river flows toward exit)
-        const waterPan = Math.max(-1, Math.min(1, dx / 6)); // Gentle panning toward exit
+        const waterPan = Math.max(-1, Math.min(1, dx / 6));
         
-        // Enhanced water intensity - MORE AUDIBLE in initial/starting areas
-        const maxWaterDistance = 15; // Increased from 12 - water audible from further away
-        const minWaterIntensity = 0.25; // Minimum 25% intensity even at max distance for initial guidance
+        const maxWaterDistance = 15;
+        const minWaterIntensity = 0.25;
         const rawIntensity = Math.max(0, 1 - (distanceToExit / maxWaterDistance));
-        const waterIntensity = Math.max(minWaterIntensity, rawIntensity); // Ensure minimum audibility
+        const waterIntensity = Math.max(minWaterIntensity, rawIntensity);
         
-        // Enhanced water volume with stronger initial presence (-18 to -5 dB range)
-        const baseVolume = -18; // Further increased from -22 for better initial audibility
-        const maxWaterVolume = -5; // Further increased from -8 for stronger guidance
+        const baseVolume = -18;
+        const maxWaterVolume = -5;
         const waterVolume = baseVolume + (waterIntensity * (maxWaterVolume - baseVolume));
         
-        // Distance-based filtering for enhanced water sound:
-        // Close: Very clear water (up to 8 kHz)
-        // Far: More audible water (enhanced minimum for initial areas)
-        const minFilterFreq = 1500; // Lowered from 2000 Hz for better initial audibility
-        const maxFilterFreq = 8000; // Keep high clarity for close range
+        const minFilterFreq = 1500;
+        const maxFilterFreq = 8000;
         const waterFilterFreq = minFilterFreq + (waterIntensity * (maxFilterFreq - minFilterFreq));
         
-        // Update water audio parameters with natural transitions
-        waterSound.current.panner.pan.rampTo(waterPan, 0.8); // Slow, natural water flow
-        waterSound.current.volume.volume.rampTo(waterVolume, 1.2); // Gradual volume changes
-        waterSound.current.lowPassFilter.frequency.rampTo(waterFilterFreq, 1.0); // Distance filtering
+        waterSound.current.panner.pan.rampTo(waterPan, 0.8);
+        waterSound.current.volume.volume.rampTo(waterVolume, 1.2);
+        waterSound.current.lowPassFilter.frequency.rampTo(waterFilterFreq, 1.0);
         
-        // Enhanced high-pass variation based on direction for better texture
-        const waterHighPassFreq = 800 + (Math.abs(waterPan) * 400); // Lowered base frequency for more initial presence
+        const waterHighPassFreq = 800 + (Math.abs(waterPan) * 400);
         waterSound.current.highPassFilter.frequency.rampTo(waterHighPassFreq, 1.0);
         
-        // Enhanced debug water guidance - show even low intensity
-        if (waterIntensity > 0.05) { // Lowered threshold to show initial guidance
+        if (waterIntensity > 0.05) {
             const audioSource = waterSound.current.isUsingPlayer ? 'Custom Audio' : 'Synthesized';
             console.log(`Water guidance (${audioSource}): Pan=${waterPan.toFixed(2)}, Intensity=${waterIntensity.toFixed(2)}, Volume=${waterVolume.toFixed(1)}dB, Filter=${waterFilterFreq.toFixed(0)}Hz, Distance=${distanceToExit.toFixed(1)}`);
         }
-        
     }, [audioInitialized]);
     
     // --- Update Audio Cues based on Game State ---
@@ -394,11 +398,9 @@ export default function AudioMazeGame() {
             if (exitSound.current.osc) {
                 exitSound.current.osc.stop();
             }
-            // Stop water guidance when game ends
             if (waterSound.current.isPlaying) {
                 waterSound.current.volume.volume.rampTo(-Infinity, 0.5);
             }
-            // Stop all animal sounds
             animalSounds.current.forEach(animalSound => {
                 if (animalSound.isPlaying) {
                     try {
@@ -411,31 +413,25 @@ export default function AudioMazeGame() {
                 }
             });
             return;
-        };
+        }
 
-        // Update environmental water guidance
         updateWaterSound(rabbitPos, exitPos);
 
-        // --- Focus only on animal spatial audio for clear directional experience ---
         animalSounds.current.forEach((animalSound, index) => {
             const animal = animalSound.position;
             const dxAnimal = rabbitPos.col - animal.col;
             const dyAnimal = rabbitPos.row - animal.row;
             const distanceAnimal = Math.sqrt(dxAnimal * dxAnimal + dyAnimal * dyAnimal);
             
-            // Update spatial audio positioning
             updateSpatialAudio(animalSound, rabbitPos, distanceAnimal);
             
             const animalKey = `animal_${index}`;
             
-            // Clean distance-based audio system - only animal sounds with spatial positioning
             if (distanceAnimal <= 6) {
-                // Animal is in detection range
                 if (!detectedAnimals.has(animalKey)) {
                     setDetectedAnimals(prev => new Set([...prev, animalKey]));
                     const proximity = distanceAnimal <= 3 ? '- VERY CLOSE!' : '- nearby';
                     
-                    // Calculate direction for user feedback
                     const dx = animal.col - rabbitPos.col;
                     let direction = '';
                     if (dx > 1) direction = '→ RIGHT';
@@ -446,42 +442,32 @@ export default function AudioMazeGame() {
                 }
                 
                 if (!animalSound.isPlaying) {
-                    // Start playing the wolf sound (custom .mp3 or fallback synth)
                     try {
                         if (animalSound.isUsingPlayer) {
-                            // Using custom .mp3 file
                             if (animalSound.synth.loaded) {
                                 animalSound.synth.start();
                                 animalSound.isPlaying = true;
                             } else {
-                                console.log('Wolf sound not yet loaded, using fallback...');
-                                // Use fallback synth
                                 const frequency = 120 + Math.random() * 30;
                                 animalSound.fallbackSynth.triggerAttack(frequency);
                                 animalSound.isPlaying = true;
                             }
                         } else {
-                            // Using fallback synth
                             const frequency = 120 + Math.random() * 30;
                             animalSound.synth.triggerAttack(frequency);
                             animalSound.isPlaying = true;
                         }
                     } catch (error) {
                         console.error('Error starting wolf sound, using fallback:', error);
-                        // Last resort fallback
                         const frequency = 120 + Math.random() * 30;
                         animalSound.fallbackSynth.triggerAttack(frequency);
                         animalSound.isPlaying = true;
                     }
                 }
                 
-                // Simple volume calculation based on distance
                 const volumeAnimal = -8 - (distanceAnimal * 2.5);
                 animalSound.synth.volume.rampTo(volumeAnimal, 0.2);
-                
-                
             } else {
-                // Animal is too far - stop sound
                 if (detectedAnimals.has(animalKey)) {
                     setDetectedAnimals(prev => {
                         const newSet = new Set(prev);
@@ -509,15 +495,10 @@ export default function AudioMazeGame() {
                 }
             }
         });
-
     }, [rabbitPos, animalPositions, exitPos, status, audioInitialized, animalSounds, updateSpatialAudio, updateWaterSound, detectedAnimals, setDetectedAnimals, setMessage]);
 
-
     // --- Game Logic ---
-
-
     const handleKeyDown = useCallback((e) => {
-        // Handle reset key (R) regardless of game status
         if (e.key === 'r' || e.key === 'R') {
             restartGame();
             return;
@@ -550,7 +531,6 @@ export default function AudioMazeGame() {
             const newRabbitPos = { row, col };
             setRabbitPos(newRabbitPos);
 
-            // Check for game end conditions after moving
             if (nextTile === 'E') {
                 setStatus('won');
                 setMessage('You escaped! Congratulations!');
@@ -563,22 +543,18 @@ export default function AudioMazeGame() {
                 if (exitSound.current.osc) exitSound.current.osc.stop();
             }
         }
-
     }, [rabbitPos, status, playSound, audioInitialized, initializeAudio, exitSound]);
 
     const restartGame = () => {
         setRabbitPos(findStartPosition('R'));
         setStatus('playing');
         setMessage('Game restarted! Use arrow keys to move.');
-        setDetectedAnimals(new Set()); // Reset detected animals
+        setDetectedAnimals(new Set());
         
-        // Reset audio state - focus only on animal sounds and water guidance
         if (audioInitialized.current) {
-            // Restart water guidance with enhanced initial presence
             if (waterSound.current.isPlaying) {
-                waterSound.current.volume.volume.rampTo(-18, 0.5); // Reset to updated enhanced base volume
+                waterSound.current.volume.volume.rampTo(-18, 0.5);
             }
-            // Reset all animal sounds
             animalSounds.current.forEach(animalSound => {
                 if (animalSound.isPlaying) {
                     try {
@@ -596,7 +572,6 @@ export default function AudioMazeGame() {
         }
     };
 
-    // Add keyboard listener
     useEffect(() => {
         window.addEventListener('keydown', handleKeyDown);
         return () => {
@@ -604,38 +579,74 @@ export default function AudioMazeGame() {
         };
     }, [handleKeyDown]);
 
-    // --- Visual Rendering ---
     const getTileContent = (row, col) => {
         if (row === rabbitPos.row && col === rabbitPos.col) return '🐰';
         const tile = MAZE_GRID[row][col];
         switch (tile) {
             case 'X': return '🌲';
             case 'E': return '🏠';
-            case 'A': 
-                // Show wolf emoji for all animals - consistent visual
-                return '🐺';
+            case 'A': return '🐺';
             default: return '';
         }
     };
 
+    // --- Minimal Start Page ---
+    if (showStart) {
+        return (
+            <div className="bg-black text-white min-h-screen flex flex-col items-center justify-center font-sans p-4">
+                <div className="max-w-lg w-full mx-auto text-center bg-gray-900 rounded-xl border-4 border-yellow-300 shadow-xl p-8">
+                    <h1 className="text-4xl font-bold text-yellow-300 mb-4 drop-shadow-lg">Audio Maze Game</h1>
+                    <p className="text-lg text-white mb-6">Navigate the maze using sound. Find the exit, avoid wolves, and use headphones for the best experience.</p>
+                    <div className="bg-gray-800 text-yellow-200 rounded-lg p-4 mb-6 text-left text-base" style={{lineHeight: '1.6'}}>
+                        <strong>Instructions:</strong>
+                        <ul className="list-disc ml-6 mt-2 mb-2">
+                            <li>Use <b>Arrow Keys</b> to move</li>
+                            <li>Press <b>R</b> to restart the game</li>
+                            <li>Press <b>SPACE</b> to hear these instructions aloud</li>
+                        </ul>
+                        <strong>Goal:</strong>
+                        <ul className="list-disc ml-6 mt-2">
+                            <li>Find the exit, guided by the sound of flowing water</li>
+                            <li>Avoid wolves, which growl when you are close</li>
+                        </ul>
+                        <span className="block mt-2 text-yellow-300 font-bold">Headphones recommended!</span>
+                    </div>
+                    <button
+                        className="mt-4 px-8 py-4 bg-yellow-300 text-black font-bold text-xl rounded-lg shadow-lg border-4 border-white hover:bg-yellow-200 focus:outline-none focus:ring-4 focus:ring-yellow-500 transition-transform transform hover:scale-105"
+                        onClick={() => setShowStart(false)}
+                        autoFocus
+                    >
+                        Start Game
+                    </button>
+                    <p className="mt-4 text-gray-400 text-sm">Press SPACE to hear instructions</p>
+                </div>
+            </div>
+        );
+    }
+
+    // --- Main Game Page ---
     return (
         <div className="bg-black text-white min-h-screen flex flex-col items-center justify-center font-sans p-4">
             <div className="text-center mb-4">
                 <h1 className="text-5xl font-bold text-yellow-300 mb-3 drop-shadow-lg">Audio Maze Game</h1>
                 <p className="text-xl text-white font-semibold bg-gray-900 px-4 py-2 rounded-lg mb-3">{message}</p>
                  {!audioInitialized.current && (
-                    <p className="text-yellow-400 animate-pulse mt-2">Press any arrow key to start audio and begin.</p>
+                    <p className="text-yellow-200 bg-red-800 px-4 py-2 rounded-lg font-bold animate-pulse mt-2">
+                        Press any ARROW KEY to start audio and begin playing
+                    </p>
                 )}
-                <div className="mt-2 text-sm text-gray-400">
-                    <p>🐰 You • 🐺 Wolves • 🏠 Exit • 🌲 Walls</p>
-                    <p className="text-cyan-300">� Flowing water guides you toward the exit</p>
-                    <p className="text-yellow-300 mt-1">🎧 HEADPHONES REQUIRED for clear left/right audio!</p>
-                    <p className="text-blue-300">Muffled = Behind you • Clear = In front of you</p>
+                <div className="mt-4 text-lg bg-gray-900 p-4 rounded-lg border-2 border-yellow-300">
+                    <p className="text-white font-bold mb-2">🎮 CONTROLS:</p>
+                    <p className="text-yellow-200 mb-1">Arrow Keys = Move • R Key = Restart Game</p>
+                    <p className="text-white font-bold mb-2 mt-3">🎧 AUDIO GUIDE:</p>
+                    <p className="text-cyan-200 mb-1">🌊 Water Sound = Direction to Exit</p>
+                    <p className="text-red-200 mb-1">🐺 Wolf Growls = Danger (Left/Right Ear)</p>
+                    <p className="text-yellow-200 font-bold mt-3">⚠ HEADPHONES REQUIRED FOR SPATIAL AUDIO</p>
                 </div>
             </div>
 
             <div
-                className="bg-green-900 border-4 border-green-600 rounded-lg shadow-lg"
+                className="bg-black border-4 border-yellow-300 rounded-lg shadow-lg"
                 style={{
                     display: 'grid',
                     gridTemplateColumns: `repeat(${MAZE_GRID[0].length}, ${TILE_SIZE}px)`,
