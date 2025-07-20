@@ -5,16 +5,21 @@ import * as Tone from 'tone';
 
 // --- Game Configuration ---
 const MAZE_GRID = [
-    ['R', ' ', 'W', ' ', 'X', ' ', 'X', ' ', 'X', ' '],
-    ['X', ' ', 'X', ' ', 'X', ' ', 'X', ' ', 'X', ' '],
-    ['X', ' ', 'X', ' ', ' ', ' ', ' ', ' ', 'X', ' '],
-    ['X', ' ', 'X', 'X', 'X', 'X', 'X', ' ', 'X', ' '],
-    ['X', ' ', ' ', ' ', ' ', ' ', 'X', ' ', 'X', ' '],
-    ['X', ' ', 'X', 'X', 'X', ' ', 'X', ' ', 'X', ' '],
-    ['X', ' ', 'X', 'A', 'X', ' ', 'X', ' ', ' ', ' '],
-    ['X', ' ', 'X', ' ', 'X', ' ', 'X', 'X', 'X', ' '],
-    ['X', ' ', ' ', ' ', 'X', ' ', ' ', ' ', 'X', 'E'],
-    ['X', 'H', 'X', ' ', 'X', 'X', 'X', ' ', 'X', 'X'],
+    ['R', ' ', 'X', ' ', ' ', ' ', 'X', ' ', ' ', ' ', 'X', ' ', ' ', ' ', 'X'],
+    ['X', ' ', 'X', ' ', 'X', ' ', 'X', ' ', 'X', ' ', 'X', ' ', 'X', ' ', 'X'],
+    ['X', ' ', ' ', ' ', 'X', ' ', ' ', ' ', 'X', ' ', ' ', ' ', 'X', ' ', ' '],
+    ['X', ' ', 'X', 'X', 'X', ' ', 'X', 'X', 'X', ' ', 'X', 'X', 'X', ' ', 'X'],
+    ['X', ' ', ' ', ' ', ' ', ' ', 'X', 'A', ' ', ' ', ' ', ' ', 'X', ' ', 'X'],
+    ['X', 'X', 'X', ' ', 'X', ' ', 'X', 'X', 'X', ' ', 'X', ' ', 'X', ' ', 'X'],
+    ['X', ' ', ' ', ' ', 'X', ' ', ' ', ' ', ' ', ' ', 'X', ' ', ' ', ' ', 'X'],
+    ['X', ' ', 'X', 'X', 'X', 'X', 'X', ' ', 'X', 'X', 'X', 'X', 'X', ' ', 'X'],
+    ['X', ' ', ' ', ' ', 'A', ' ', 'X', ' ', ' ', ' ', 'A', ' ', 'X', ' ', ' '],
+    ['X', ' ', 'X', ' ', 'X', ' ', 'X', ' ', 'X', ' ', 'X', ' ', 'X', ' ', 'X'],
+    ['X', ' ', 'X', ' ', ' ', ' ', 'X', ' ', 'X', ' ', ' ', ' ', 'X', ' ', 'X'],
+    ['X', ' ', 'X', 'X', 'X', ' ', 'X', ' ', 'X', 'X', 'X', ' ', 'X', ' ', 'X'],
+    ['X', ' ', ' ', ' ', 'A', ' ', ' ', ' ', ' ', ' ', 'A', ' ', ' ', ' ', 'X'],
+    ['X', ' ', 'X', ' ', 'X', 'X', 'X', 'X', 'X', 'X', 'X', ' ', 'X', ' ', 'E'],
+    ['X', 'H', 'X', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'X', ' ', 'X'],
 ];
 
 const TILE_SIZE = 40; // For visual representation
@@ -31,6 +36,19 @@ const findStartPosition = (char) => {
     return { row: 0, col: 0 };
 };
 
+// --- Helper function to find all animal positions ---
+const findAllAnimals = () => {
+    const animals = [];
+    for (let r = 0; r < MAZE_GRID.length; r++) {
+        for (let c = 0; c < MAZE_GRID[r].length; c++) {
+            if (MAZE_GRID[r][c] === 'A') {
+                animals.push({ row: r, col: c });
+            }
+        }
+    }
+    return animals;
+};
+
 // --- Audio Engine ---
 // We use useRef to ensure Tone.js objects are created only once.
 const useAudioEngine = () => {
@@ -41,7 +59,8 @@ const useAudioEngine = () => {
         wall: null,
         win: null,
         lose: null,
-        animal: null,
+        playerFootstep: null,
+        dangerAlert: null,
     });
 
     const hunterSound = useRef({
@@ -54,6 +73,8 @@ const useAudioEngine = () => {
         osc: null,
         panner: null,
     });
+
+    const animalSounds = useRef([]);
 
     // Initialize all audio components
     const initializeAudio = () => {
@@ -68,9 +89,44 @@ const useAudioEngine = () => {
         synths.current.win = new Tone.Synth({ oscillator: { type: 'triangle' }, envelope: { attack: 0.1, decay: 0.5, sustain: 0.3, release: 1 } }).toDestination();
         synths.current.lose = new Tone.Synth({ oscillator: { type: 'sawtooth' }, envelope: { attack: 0.2, decay: 1, sustain: 0.2, release: 1 } }).toDestination();
         
-        // Ambient dangerous animal sound
-        synths.current.animal = new Tone.NoiseSynth({ noise: { type: 'brown' }, envelope: { attack: 0.5, decay: 0.2, sustain: 0.1 } }).toDestination();
-        synths.current.animal.volume.value = -20;
+        // Player footstep sound
+        synths.current.playerFootstep = new Tone.NoiseSynth({
+            noise: { type: 'white' },
+            envelope: { attack: 0.005, decay: 0.08, sustain: 0 }
+        }).toDestination();
+        synths.current.playerFootstep.volume.value = -15;
+
+        // Danger alert sound - for general danger notifications
+        synths.current.dangerAlert = new Tone.Synth({
+            oscillator: { type: 'sawtooth' },
+            envelope: { attack: 0.01, decay: 0.1, sustain: 0.2, release: 0.3 }
+        }).toDestination();
+        synths.current.dangerAlert.volume.value = -10;
+
+        // Animal sounds for each animal in the maze
+        const animals = findAllAnimals();
+        animals.forEach((animal, index) => {
+            const animalSound = {
+                synth: new Tone.NoiseSynth({ 
+                    noise: { type: index % 2 === 0 ? 'brown' : 'pink' }, 
+                    envelope: { attack: 0.5, decay: 0.2, sustain: 0.1, release: 0.3 } 
+                }),
+                panner: new Tone.Panner(0),
+                position: animal,
+                isPlaying: false,
+                warningSound: new Tone.Synth({
+                    oscillator: { type: 'triangle' },
+                    envelope: { attack: 0.05, decay: 0.1, sustain: 0.3, release: 0.4 }
+                }),
+                lastWarningTime: 0
+            };
+            animalSound.synth.connect(animalSound.panner);
+            animalSound.warningSound.connect(animalSound.panner);
+            animalSound.panner.toDestination();
+            animalSound.synth.volume.value = -Infinity;
+            animalSound.warningSound.volume.value = -Infinity;
+            animalSounds.current.push(animalSound);
+        });
 
         // Hunter sound (footsteps)
         hunterSound.current.panner = new Tone.Panner(0).toDestination();
@@ -82,14 +138,14 @@ const useAudioEngine = () => {
 
         // Exit beacon sound
         exitSound.current.panner = new Tone.Panner(0).toDestination();
-        exitSound.current.osc = new Tone.Oscillator(440, "sine").connect(exitSound.current.panner).start();
+        exitSound.current.osc = new Tone.Oscillator(440, "sine").connect(exitSound.current.panner);
         exitSound.current.osc.volume.value = -Infinity; // Start silent
 
         audioInitialized.current = true;
         console.log("Audio Engine Initialized");
     };
 
-    return { initializeAudio, synths, hunterSound, exitSound, audioInitialized };
+    return { initializeAudio, synths, hunterSound, exitSound, animalSounds, audioInitialized };
 };
 
 
@@ -97,12 +153,13 @@ const useAudioEngine = () => {
 export default function AudioMazeGame() {
     const [rabbitPos, setRabbitPos] = useState(findStartPosition('R'));
     const [hunterPos, setHunterPos] = useState(findStartPosition('H'));
-    const [animalPos] = useState(findStartPosition('A'));
+    const [animalPositions] = useState(findAllAnimals());
     const [exitPos] = useState(findStartPosition('E'));
     const [status, setStatus] = useState('playing'); // 'playing', 'won', 'lost'
     const [message, setMessage] = useState('Use arrow keys to move. Find the exit!');
+    const [detectedAnimals, setDetectedAnimals] = useState(new Set()); // Track which animals have been detected
 
-    const { initializeAudio, synths, hunterSound, exitSound, audioInitialized } = useAudioEngine();
+    const { initializeAudio, synths, hunterSound, exitSound, animalSounds, audioInitialized } = useAudioEngine();
 
     // --- Sound Playback Functions ---
 
@@ -111,17 +168,65 @@ export default function AudioMazeGame() {
         synths.current[sound].triggerAttackRelease(note, duration);
     }, [audioInitialized, synths]);
 
+    const playPlayerFootstep = useCallback(() => {
+        if (!audioInitialized.current || !synths.current.playerFootstep) return;
+        // Use triggerAttackRelease for cleaner sound without echo
+        synths.current.playerFootstep.triggerAttackRelease('0.08');
+    }, [audioInitialized]);
+
     const playHunterStep = useCallback(() => {
         if (!audioInitialized.current || !hunterSound.current.noise) return;
-        hunterSound.current.noise.triggerAttack();
+        // Use triggerAttackRelease for cleaner sound without echo
+        hunterSound.current.noise.triggerAttackRelease('0.1');
+    }, [audioInitialized]);
+
+    const announceDanger = useCallback((distanceLevel, animalIndex) => {
+        if (!audioInitialized.current || !synths.current.dangerAlert) return;
+        
+        // Play different danger level sounds
+        let alertPattern = [];
+        switch (distanceLevel) {
+            case 'critical':
+                // Rapid urgent beeps
+                alertPattern = [800, 900, 800, 900];
+                break;
+            case 'high':
+                // Double beep warning
+                alertPattern = [600, 700];
+                break;
+            case 'moderate':
+                // Single warning tone
+                alertPattern = [500];
+                break;
+        }
+        
+        alertPattern.forEach((freq, i) => {
+            setTimeout(() => {
+                synths.current.dangerAlert.triggerAttackRelease(freq, "0.1");
+            }, i * 150);
+        });
     }, [audioInitialized]);
     
     // --- Update Audio Cues based on Game State ---
     useEffect(() => {
         if (status !== 'playing' || !audioInitialized.current) {
-            if (exitSound.current.osc) exitSound.current.osc.volume.value = -Infinity;
+            if (exitSound.current.osc) {
+                exitSound.current.osc.stop();
+            }
+            // Stop all animal sounds
+            animalSounds.current.forEach(animalSound => {
+                if (animalSound.isPlaying) {
+                    animalSound.synth.triggerRelease();
+                    animalSound.isPlaying = false;
+                }
+            });
             return;
         };
+
+        // Start exit sound if not already started
+        if (exitSound.current.osc && exitSound.current.osc.state === 'stopped') {
+            exitSound.current.osc.start();
+        }
 
         // --- Hunter Proximity and Direction ---
         const dxHunter = rabbitPos.col - hunterPos.col;
@@ -129,45 +234,151 @@ export default function AudioMazeGame() {
         const distanceHunter = Math.sqrt(dxHunter * dxHunter + dyHunter * dyHunter);
         
         // Panning: -1 is left, 1 is right
-        const panHunter = Math.max(-1, Math.min(1, dxHunter / 5));
-        hunterSound.current.panner.pan.rampTo(panHunter, 0.1);
+        const panHunter = Math.max(-1, Math.min(1, dxHunter / 7));
+        if (hunterSound.current.panner) {
+            hunterSound.current.panner.pan.rampTo(panHunter, 0.1);
+        }
 
         // Volume: louder when closer. Max volume at distance 1.
         const volumeHunter = -5 - distanceHunter * 3; // dB
-        hunterSound.current.noise.volume.rampTo(volumeHunter, 0.1);
+        if (hunterSound.current.noise) {
+            hunterSound.current.noise.volume.rampTo(volumeHunter, 0.1);
+        }
 
         // --- Exit Beacon Proximity and Direction ---
         const dxExit = rabbitPos.col - exitPos.col;
         const dyExit = rabbitPos.row - exitPos.row;
         const distanceExit = Math.sqrt(dxExit * dxExit + dyExit * dyExit);
 
-        const panExit = Math.max(-1, Math.min(1, dxExit / 5));
-        exitSound.current.panner.pan.rampTo(panExit, 0.1);
+        const panExit = Math.max(-1, Math.min(1, dxExit / 7));
+        if (exitSound.current.panner) {
+            exitSound.current.panner.pan.rampTo(panExit, 0.1);
+        }
         
         // Volume increases as player gets closer
         const volumeExit = -15 - distanceExit * 2.5;
-        exitSound.current.osc.volume.rampTo(volumeExit, 0.1);
-        // Pitch increases as player gets closer
-        const freqExit = 440 + (15 - distanceExit) * 20;
-        exitSound.current.osc.frequency.rampTo(freqExit, 0.1);
-
-        // --- Dangerous Animal Proximity ---
-        const dxAnimal = rabbitPos.col - animalPos.col;
-        const dyAnimal = rabbitPos.row - animalPos.row;
-        const distanceAnimal = Math.sqrt(dxAnimal * dxAnimal + dyAnimal * dyAnimal);
-        if (distanceAnimal < 3) {
-            if (synths.current.animal.volume.value === -Infinity) {
-                 synths.current.animal.triggerAttack();
-            }
-            synths.current.animal.volume.rampTo(-20 - distanceAnimal * 5, 0.2);
-        } else {
-            synths.current.animal.volume.rampTo(-Infinity, 0.5, "+0.2");
-             if (synths.current.animal.volume.value <= -Infinity) {
-                  synths.current.animal.triggerRelease();
-             }
+        if (exitSound.current.osc && exitSound.current.osc.state === 'started') {
+            exitSound.current.osc.volume.rampTo(volumeExit, 0.1);
+            // Pitch increases as player gets closer
+            const freqExit = 440 + (15 - distanceExit) * 20;
+            exitSound.current.osc.frequency.rampTo(freqExit, 0.1);
         }
 
-    }, [rabbitPos, hunterPos, exitPos, animalPos, status, audioInitialized, synths, hunterSound, exitSound]);
+        // --- Multiple Animals Proximity and Direction ---
+        animalSounds.current.forEach((animalSound, index) => {
+            const animal = animalSound.position;
+            const dxAnimal = rabbitPos.col - animal.col;
+            const dyAnimal = rabbitPos.row - animal.row;
+            const distanceAnimal = Math.sqrt(dxAnimal * dxAnimal + dyAnimal * dyAnimal);
+            
+            // Panning for spatial audio
+            const panAnimal = Math.max(-1, Math.min(1, dxAnimal / 7));
+            animalSound.panner.pan.rampTo(panAnimal, 0.1);
+            
+            const currentTime = Date.now();
+            const animalKey = `animal_${index}`;
+            
+            // Proximity-based audio system
+            if (distanceAnimal <= 1.5) {
+                // CRITICAL DANGER: Very close to animal
+                if (!detectedAnimals.has(animalKey)) {
+                    setDetectedAnimals(prev => new Set([...prev, animalKey]));
+                    announceDanger('critical', index);
+                    setMessage('⚠️ CRITICAL DANGER! Animal very close!');
+                }
+                
+                if (!animalSound.isPlaying) {
+                    animalSound.synth.triggerAttack();
+                    animalSound.isPlaying = true;
+                }
+                // Loud animal sounds
+                const volumeAnimal = -10 - distanceAnimal * 2;
+                animalSound.synth.volume.rampTo(volumeAnimal, 0.1);
+                
+                // Critical warning beeps - frequent and urgent
+                if (currentTime - animalSound.lastWarningTime > 300) { // Every 300ms
+                    const warningFreq = 800 + Math.random() * 200; // High pitched urgent sound
+                    animalSound.warningSound.volume.value = -8;
+                    animalSound.warningSound.triggerAttackRelease(warningFreq, "0.15");
+                    animalSound.lastWarningTime = currentTime;
+                }
+                
+            } else if (distanceAnimal <= 3) {
+                // HIGH DANGER: Close to animal
+                if (!detectedAnimals.has(animalKey)) {
+                    setDetectedAnimals(prev => new Set([...prev, animalKey]));
+                    announceDanger('high', index);
+                    setMessage('⚠️ HIGH DANGER! Animal nearby!');
+                }
+                
+                if (!animalSound.isPlaying) {
+                    animalSound.synth.triggerAttack();
+                    animalSound.isPlaying = true;
+                }
+                // Medium volume animal sounds
+                const volumeAnimal = -18 - distanceAnimal * 3;
+                animalSound.synth.volume.rampTo(volumeAnimal, 0.2);
+                
+                // Warning beeps - moderate frequency
+                if (currentTime - animalSound.lastWarningTime > 800) { // Every 800ms
+                    const warningFreq = 600 + Math.random() * 100;
+                    animalSound.warningSound.volume.value = -12;
+                    animalSound.warningSound.triggerAttackRelease(warningFreq, "0.2");
+                    animalSound.lastWarningTime = currentTime;
+                }
+                
+            } else if (distanceAnimal <= 5) {
+                // MODERATE DANGER: Animal in vicinity
+                if (!detectedAnimals.has(animalKey)) {
+                    setDetectedAnimals(prev => new Set([...prev, animalKey]));
+                    announceDanger('moderate', index);
+                    setMessage('⚠️ CAUTION: Animal detected in area.');
+                }
+                
+                if (!animalSound.isPlaying) {
+                    animalSound.synth.triggerAttack();
+                    animalSound.isPlaying = true;
+                }
+                // Quieter animal sounds
+                const volumeAnimal = -25 - distanceAnimal * 2;
+                animalSound.synth.volume.rampTo(volumeAnimal, 0.3);
+                
+                // Gentle warning tones - less frequent
+                if (currentTime - animalSound.lastWarningTime > 1500) { // Every 1.5 seconds
+                    const warningFreq = 400 + Math.random() * 50;
+                    animalSound.warningSound.volume.value = -18;
+                    animalSound.warningSound.triggerAttackRelease(warningFreq, "0.3");
+                    animalSound.lastWarningTime = currentTime;
+                }
+                
+            } else {
+                // SAFE DISTANCE: No immediate danger
+                if (detectedAnimals.has(animalKey) && distanceAnimal > 6) {
+                    // Remove from detected when far enough away
+                    setDetectedAnimals(prev => {
+                        const newSet = new Set(prev);
+                        newSet.delete(animalKey);
+                        return newSet;
+                    });
+                    if (detectedAnimals.size === 1) { // This was the last detected animal
+                        setMessage('✓ Area clear. Continue exploring.');
+                    }
+                }
+                
+                if (animalSound.isPlaying) {
+                    animalSound.synth.volume.rampTo(-Infinity, 0.5);
+                    animalSound.warningSound.volume.value = -Infinity;
+                    setTimeout(() => {
+                        if (animalSound.isPlaying) {
+                            animalSound.synth.triggerRelease();
+                            animalSound.isPlaying = false;
+                        }
+                    }, 500);
+                }
+            }
+        });
+
+    }, [rabbitPos, hunterPos, exitPos, animalPositions, status, audioInitialized, synths, hunterSound, exitSound, animalSounds]);
 
 
     // --- Game Logic ---
@@ -190,11 +401,20 @@ export default function AudioMazeGame() {
         // Check if the hunter's next move is valid (not a wall)
         if (MAZE_GRID[nextHunterPos.row]?.[nextHunterPos.col] !== 'X') {
             setHunterPos(nextHunterPos);
+            
+            // Check if hunter caught the player after moving
+            if (nextHunterPos.row === currentRabbitPos.row && nextHunterPos.col === currentRabbitPos.col) {
+                setStatus('lost');
+                setMessage('The hunter caught you! Game Over.');
+                playSound('lose', 'C2', '2s');
+                if (exitSound.current.osc) exitSound.current.osc.volume.value = -Infinity;
+                return; // Don't play hunter step sound if game ends
+            }
         }
         
         playHunterStep();
 
-    }, [hunterPos, playHunterStep]);
+    }, [hunterPos, playHunterStep, playSound, exitSound, setStatus, setMessage]);
 
 
     const handleKeyDown = useCallback((e) => {
@@ -222,6 +442,7 @@ export default function AudioMazeGame() {
             playSound('wall', 'C2', '0.2s');
         } else {
             playSound('move', 'C4', '0.1s');
+            playPlayerFootstep(); // Add player footstep sound
             const newRabbitPos = { row, col };
             setRabbitPos(newRabbitPos);
 
@@ -230,31 +451,49 @@ export default function AudioMazeGame() {
                 setStatus('won');
                 setMessage('You escaped! Congratulations!');
                 playSound('win', 'G5', '1s');
-                if (exitSound.current.osc) exitSound.current.osc.volume.value = -Infinity;
-            } else if (row === hunterPos.row && col === hunterPos.col) {
-                setStatus('lost');
-                setMessage('The hunter caught you! Game Over.');
-                playSound('lose', 'C2', '2s');
-                 if (exitSound.current.osc) exitSound.current.osc.volume.value = -Infinity;
+                if (exitSound.current.osc) exitSound.current.osc.stop();
             } else if (nextTile === 'A') {
                 setStatus('lost');
                 setMessage('You ran into a dangerous animal! Game Over.');
                 playSound('lose', 'D2', '2s');
-                 if (exitSound.current.osc) exitSound.current.osc.volume.value = -Infinity;
+                if (exitSound.current.osc) exitSound.current.osc.stop();
             } else {
                  // If game continues, move the hunter
                  moveHunter(newRabbitPos);
             }
         }
 
-    }, [rabbitPos, hunterPos, status, playSound, moveHunter, audioInitialized, initializeAudio, exitSound]);
+    }, [rabbitPos, hunterPos, status, playSound, playPlayerFootstep, moveHunter, audioInitialized, initializeAudio, exitSound]);
 
     const restartGame = () => {
         setRabbitPos(findStartPosition('R'));
         setHunterPos(findStartPosition('H'));
         setStatus('playing');
         setMessage('Game restarted! Use arrow keys to move.');
-        if (!audioInitialized.current) {
+        setDetectedAnimals(new Set()); // Reset detected animals
+        
+        // Reset audio state
+        if (audioInitialized.current) {
+            // Stop and recreate exit sound to prevent echo
+            if (exitSound.current.osc) {
+                try {
+                    exitSound.current.osc.stop();
+                } catch (e) {
+                    // Oscillator might already be stopped
+                }
+            }
+            exitSound.current.osc = new Tone.Oscillator(440, "sine").connect(exitSound.current.panner);
+            exitSound.current.osc.volume.value = -Infinity;
+            
+            // Reset all animal sounds
+            animalSounds.current.forEach(animalSound => {
+                if (animalSound.isPlaying) {
+                    animalSound.synth.triggerRelease();
+                    animalSound.isPlaying = false;
+                }
+                animalSound.lastWarningTime = 0;
+            });
+        } else {
             initializeAudio();
         }
     };
@@ -288,6 +527,10 @@ export default function AudioMazeGame() {
                  {!audioInitialized.current && (
                     <p className="text-yellow-400 animate-pulse mt-2">Press any arrow key to start audio and begin.</p>
                 )}
+                <div className="mt-2 text-sm text-gray-400">
+                    <p>🐰 You • 👨‍🌾 Hunter • 🐺 Animals • 🏠 Exit • 🌲 Walls</p>
+                    <p>Listen for: Footsteps (hunter), Animal sounds, Exit beacon</p>
+                </div>
             </div>
 
             <div
