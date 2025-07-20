@@ -89,57 +89,86 @@ const useAudioEngine = () => {
         synths.current.win = new Tone.Synth({ oscillator: { type: 'triangle' }, envelope: { attack: 0.1, decay: 0.5, sustain: 0.3, release: 1 } }).toDestination();
         synths.current.lose = new Tone.Synth({ oscillator: { type: 'sawtooth' }, envelope: { attack: 0.2, decay: 1, sustain: 0.2, release: 1 } }).toDestination();
         
-        // Player footstep sound
-        synths.current.playerFootstep = new Tone.NoiseSynth({
-            noise: { type: 'white' },
-            envelope: { attack: 0.005, decay: 0.08, sustain: 0 }
-        }).toDestination();
-        synths.current.playerFootstep.volume.value = -15;
+        // Remove player footstep and danger alert for cleaner spatial audio
 
-        // Danger alert sound - for general danger notifications
-        synths.current.dangerAlert = new Tone.Synth({
-            oscillator: { type: 'sawtooth' },
-            envelope: { attack: 0.01, decay: 0.1, sustain: 0.2, release: 0.3 }
-        }).toDestination();
-        synths.current.dangerAlert.volume.value = -10;
-
-        // Animal sounds for each animal in the maze
+        // Custom wolf sounds using .mp3 file for all animals in the maze
         const animals = findAllAnimals();
+        
+        // Load the wolf sound once and clone it for each animal
+        const wolfAudioUrl = '/wolf-growl.mp3'; // Place your .mp3 file in the public folder
+        
         animals.forEach((animal, index) => {
+            // Create fallback synthesized wolf sound
+            const fallbackSynth = new Tone.Synth({
+                oscillator: { 
+                    type: 'sawtooth',
+                    modulationType: 'sine',
+                    modulationFrequency: 8,
+                    harmonicity: 0.5
+                },
+                envelope: { attack: 0.3, decay: 0.4, sustain: 0.6, release: 0.8 }
+            });
+
+            // Try to use Tone.Player for custom audio file, fallback to synth
+            let customPlayer;
+            try {
+                customPlayer = new Tone.Player({
+                    url: wolfAudioUrl,
+                    loop: true, // Enable looping for continuous sound
+                    autostart: false,
+                    fadeIn: 0.1,
+                    fadeOut: 0.1,
+                    onload: () => {
+                        console.log(`Wolf sound ${index} loaded successfully`);
+                    },
+                    onerror: (error) => {
+                        console.error(`Failed to load wolf sound ${index}, using fallback:`, error);
+                    }
+                });
+            } catch (error) {
+                console.error('Failed to create Player, using fallback synth:', error);
+                customPlayer = fallbackSynth;
+            }
+
             const animalSound = {
-                synth: new Tone.NoiseSynth({ 
-                    noise: { type: index % 2 === 0 ? 'brown' : 'pink' }, 
-                    envelope: { attack: 0.5, decay: 0.2, sustain: 0.1, release: 0.3 } 
-                }),
+                synth: customPlayer, // Use player or fallback synth
+                fallbackSynth: fallbackSynth, // Keep fallback available
+                animalType: 'Wolf', // All animals are wolves
+                isUsingPlayer: customPlayer !== fallbackSynth, // Track if using custom audio
+                // Enhanced stereo panner for better directional audio
                 panner: new Tone.Panner(0),
+                // Add a filter for distance simulation
+                filter: new Tone.Filter({
+                    frequency: 2000,
+                    type: 'lowpass',
+                    rolloff: -12
+                }),
+                // Add reverb for spatial depth
+                reverb: new Tone.Reverb({
+                    roomSize: 0.8,
+                    dampening: 3000
+                }),
                 position: animal,
                 isPlaying: false,
-                warningSound: new Tone.Synth({
-                    oscillator: { type: 'triangle' },
-                    envelope: { attack: 0.05, decay: 0.1, sustain: 0.3, release: 0.4 }
-                }),
+                // Remove warning sound - redundant with main animal sound
                 lastWarningTime: 0
             };
-            animalSound.synth.connect(animalSound.panner);
-            animalSound.warningSound.connect(animalSound.panner);
+            
+            // Create clean audio chain for spatial audio with custom wolf sound
+            animalSound.synth.connect(animalSound.filter);
+            animalSound.filter.connect(animalSound.reverb);
+            animalSound.reverb.connect(animalSound.panner);
             animalSound.panner.toDestination();
+            
+            // Also connect fallback synth to the same chain
+            animalSound.fallbackSynth.connect(animalSound.filter);
+            
             animalSound.synth.volume.value = -Infinity;
-            animalSound.warningSound.volume.value = -Infinity;
+            animalSound.fallbackSynth.volume.value = -Infinity;
             animalSounds.current.push(animalSound);
         });
 
-        // Hunter sound (footsteps)
-        hunterSound.current.panner = new Tone.Panner(0).toDestination();
-        hunterSound.current.filter = new Tone.Filter(400, "lowpass").connect(hunterSound.current.panner);
-        hunterSound.current.noise = new Tone.NoiseSynth({
-            noise: { type: 'white' },
-            envelope: { attack: 0.005, decay: 0.1, sustain: 0 }
-        }).connect(hunterSound.current.filter);
-
-        // Exit beacon sound
-        exitSound.current.panner = new Tone.Panner(0).toDestination();
-        exitSound.current.osc = new Tone.Oscillator(440, "sine").connect(exitSound.current.panner);
-        exitSound.current.osc.volume.value = -Infinity; // Start silent
+        // Remove hunter and exit sounds for cleaner spatial audio focus
 
         audioInitialized.current = true;
         console.log("Audio Engine Initialized");
@@ -169,43 +198,66 @@ export default function AudioMazeGame() {
     }, [audioInitialized, synths]);
 
     const playPlayerFootstep = useCallback(() => {
-        if (!audioInitialized.current || !synths.current.playerFootstep) return;
-        // Use triggerAttackRelease for cleaner sound without echo
-        synths.current.playerFootstep.triggerAttackRelease('0.08');
-    }, [audioInitialized]);
+        // Removed for cleaner spatial audio experience
+    }, []);
 
     const playHunterStep = useCallback(() => {
-        if (!audioInitialized.current || !hunterSound.current.noise) return;
-        // Use triggerAttackRelease for cleaner sound without echo
-        hunterSound.current.noise.triggerAttackRelease('0.1');
-    }, [audioInitialized]);
+        // Removed for cleaner spatial audio experience
+    }, []);
 
     const announceDanger = useCallback((distanceLevel, animalIndex) => {
-        if (!audioInitialized.current || !synths.current.dangerAlert) return;
+        // Removed danger alerts - using only animal sounds for cleaner spatial audio
+    }, []);
+
+    // Calculate enhanced stereo positioning for clear left/right audio separation
+    const calculateSpatialAudio = useCallback((playerPos, targetPos, distance) => {
+        // Calculate relative position
+        const dx = targetPos.col - playerPos.col;
+        const dy = targetPos.row - playerPos.row;
         
-        // Play different danger level sounds
-        let alertPattern = [];
-        switch (distanceLevel) {
-            case 'critical':
-                // Rapid urgent beeps
-                alertPattern = [800, 900, 800, 900];
-                break;
-            case 'high':
-                // Double beep warning
-                alertPattern = [600, 700];
-                break;
-            case 'moderate':
-                // Single warning tone
-                alertPattern = [500];
-                break;
-        }
+        // ENHANCED panning calculation for CLEAR left/right separation
+        // Use the full stereo field and make it more aggressive
+        const panValue = Math.max(-1, Math.min(1, dx / 2)); // More aggressive panning (was dx/3)
         
-        alertPattern.forEach((freq, i) => {
-            setTimeout(() => {
-                synths.current.dangerAlert.triggerAttackRelease(freq, "0.1");
-            }, i * 150);
-        });
-    }, [audioInitialized]);
+        // Apply stereo boost - make left/right even more pronounced
+        const boostedPan = panValue * 1.5; // Boost the panning effect
+        const finalPan = Math.max(-1, Math.min(1, boostedPan));
+        
+        // Calculate front/back perception using frequency filtering
+        // Objects behind sound more muffled (lower frequency)
+        const frontBackFactor = dy; // Positive = in front, negative = behind
+        const filterFreq = frontBackFactor > 0 
+            ? 2000 + (frontBackFactor * 300)  // In front: brighter
+            : 1200 - (Math.abs(frontBackFactor) * 200); // Behind: more muffled
+        
+        // Distance-based reverb for depth perception
+        const reverbWet = Math.min(distance / 8, 0.7); // More reverb = further away
+        
+        return {
+            pan: finalPan, // Use the boosted panning for clear left/right
+            filterFreq: Math.max(300, Math.min(4000, filterFreq)),
+            reverbWet: reverbWet,
+            distance: distance
+        };
+    }, []);
+
+    // Enhanced spatial audio positioning with aggressive left/right separation
+    const updateSpatialAudio = useCallback((animalSound, playerPos, distance) => {
+        const spatialParams = calculateSpatialAudio(playerPos, animalSound.position, distance);
+        
+        // Update stereo panning with immediate effect for clear left/right
+        animalSound.panner.pan.rampTo(spatialParams.pan, 0.05); // Faster response (was 0.1)
+        
+        // Update filter for front/back perception
+        animalSound.filter.frequency.rampTo(spatialParams.filterFreq, 0.2);
+        
+        // Update reverb for distance perception
+        animalSound.reverb.wet.rampTo(spatialParams.reverbWet, 0.3);
+        
+        // Debug logging to verify panning values
+        console.log(`Animal ${animalSound.position.row},${animalSound.position.col}: Pan=${spatialParams.pan.toFixed(2)}, Distance=${distance.toFixed(1)}`);
+        
+    }, [calculateSpatialAudio]);
     
     // --- Update Audio Cues based on Game State ---
     useEffect(() => {
@@ -216,169 +268,113 @@ export default function AudioMazeGame() {
             // Stop all animal sounds
             animalSounds.current.forEach(animalSound => {
                 if (animalSound.isPlaying) {
-                    animalSound.synth.triggerRelease();
-                    animalSound.isPlaying = false;
+                    try {
+                        animalSound.synth.stop();
+                        animalSound.isPlaying = false;
+                    } catch (error) {
+                        console.error('Error stopping wolf sound on game end:', error);
+                        animalSound.isPlaying = false;
+                    }
                 }
             });
             return;
         };
 
-        // Start exit sound if not already started
-        if (exitSound.current.osc && exitSound.current.osc.state === 'stopped') {
-            exitSound.current.osc.start();
-        }
-
-        // --- Hunter Proximity and Direction ---
-        const dxHunter = rabbitPos.col - hunterPos.col;
-        const dyHunter = rabbitPos.row - hunterPos.row;
-        const distanceHunter = Math.sqrt(dxHunter * dxHunter + dyHunter * dyHunter);
-        
-        // Panning: -1 is left, 1 is right
-        const panHunter = Math.max(-1, Math.min(1, dxHunter / 7));
-        if (hunterSound.current.panner) {
-            hunterSound.current.panner.pan.rampTo(panHunter, 0.1);
-        }
-
-        // Volume: louder when closer. Max volume at distance 1.
-        const volumeHunter = -5 - distanceHunter * 3; // dB
-        if (hunterSound.current.noise) {
-            hunterSound.current.noise.volume.rampTo(volumeHunter, 0.1);
-        }
-
-        // --- Exit Beacon Proximity and Direction ---
-        const dxExit = rabbitPos.col - exitPos.col;
-        const dyExit = rabbitPos.row - exitPos.row;
-        const distanceExit = Math.sqrt(dxExit * dxExit + dyExit * dyExit);
-
-        const panExit = Math.max(-1, Math.min(1, dxExit / 7));
-        if (exitSound.current.panner) {
-            exitSound.current.panner.pan.rampTo(panExit, 0.1);
-        }
-        
-        // Volume increases as player gets closer
-        const volumeExit = -15 - distanceExit * 2.5;
-        if (exitSound.current.osc && exitSound.current.osc.state === 'started') {
-            exitSound.current.osc.volume.rampTo(volumeExit, 0.1);
-            // Pitch increases as player gets closer
-            const freqExit = 440 + (15 - distanceExit) * 20;
-            exitSound.current.osc.frequency.rampTo(freqExit, 0.1);
-        }
-
-        // --- Multiple Animals Proximity and Direction ---
+        // --- Focus only on animal spatial audio for clear directional experience ---
         animalSounds.current.forEach((animalSound, index) => {
             const animal = animalSound.position;
             const dxAnimal = rabbitPos.col - animal.col;
             const dyAnimal = rabbitPos.row - animal.row;
             const distanceAnimal = Math.sqrt(dxAnimal * dxAnimal + dyAnimal * dyAnimal);
             
-            // Panning for spatial audio
-            const panAnimal = Math.max(-1, Math.min(1, dxAnimal / 7));
-            animalSound.panner.pan.rampTo(panAnimal, 0.1);
+            // Update spatial audio positioning
+            updateSpatialAudio(animalSound, rabbitPos, distanceAnimal);
             
-            const currentTime = Date.now();
             const animalKey = `animal_${index}`;
             
-            // Proximity-based audio system
-            if (distanceAnimal <= 1.5) {
-                // CRITICAL DANGER: Very close to animal
+            // Clean distance-based audio system - only animal sounds with spatial positioning
+            if (distanceAnimal <= 6) {
+                // Animal is in detection range
                 if (!detectedAnimals.has(animalKey)) {
                     setDetectedAnimals(prev => new Set([...prev, animalKey]));
-                    announceDanger('critical', index);
-                    setMessage('⚠️ CRITICAL DANGER! Animal very close!');
+                    const proximity = distanceAnimal <= 3 ? '- VERY CLOSE!' : '- nearby';
+                    
+                    // Calculate direction for user feedback
+                    const dx = animal.col - rabbitPos.col;
+                    let direction = '';
+                    if (dx > 1) direction = '→ RIGHT';
+                    else if (dx < -1) direction = '← LEFT';
+                    else direction = '↕ CENTER';
+                    
+                    setMessage(`🐺 Wolf detected ${proximity} ${direction}`);
                 }
                 
                 if (!animalSound.isPlaying) {
-                    animalSound.synth.triggerAttack();
-                    animalSound.isPlaying = true;
+                    // Start playing the wolf sound (custom .mp3 or fallback synth)
+                    try {
+                        if (animalSound.isUsingPlayer) {
+                            // Using custom .mp3 file
+                            if (animalSound.synth.loaded) {
+                                animalSound.synth.start();
+                                animalSound.isPlaying = true;
+                            } else {
+                                console.log('Wolf sound not yet loaded, using fallback...');
+                                // Use fallback synth
+                                const frequency = 120 + Math.random() * 30;
+                                animalSound.fallbackSynth.triggerAttack(frequency);
+                                animalSound.isPlaying = true;
+                            }
+                        } else {
+                            // Using fallback synth
+                            const frequency = 120 + Math.random() * 30;
+                            animalSound.synth.triggerAttack(frequency);
+                            animalSound.isPlaying = true;
+                        }
+                    } catch (error) {
+                        console.error('Error starting wolf sound, using fallback:', error);
+                        // Last resort fallback
+                        const frequency = 120 + Math.random() * 30;
+                        animalSound.fallbackSynth.triggerAttack(frequency);
+                        animalSound.isPlaying = true;
+                    }
                 }
-                // Loud animal sounds
-                const volumeAnimal = -10 - distanceAnimal * 2;
-                animalSound.synth.volume.rampTo(volumeAnimal, 0.1);
                 
-                // Critical warning beeps - frequent and urgent
-                if (currentTime - animalSound.lastWarningTime > 300) { // Every 300ms
-                    const warningFreq = 800 + Math.random() * 200; // High pitched urgent sound
-                    animalSound.warningSound.volume.value = -8;
-                    animalSound.warningSound.triggerAttackRelease(warningFreq, "0.15");
-                    animalSound.lastWarningTime = currentTime;
-                }
-                
-            } else if (distanceAnimal <= 3) {
-                // HIGH DANGER: Close to animal
-                if (!detectedAnimals.has(animalKey)) {
-                    setDetectedAnimals(prev => new Set([...prev, animalKey]));
-                    announceDanger('high', index);
-                    setMessage('⚠️ HIGH DANGER! Animal nearby!');
-                }
-                
-                if (!animalSound.isPlaying) {
-                    animalSound.synth.triggerAttack();
-                    animalSound.isPlaying = true;
-                }
-                // Medium volume animal sounds
-                const volumeAnimal = -18 - distanceAnimal * 3;
+                // Simple volume calculation based on distance
+                const volumeAnimal = -8 - (distanceAnimal * 2.5);
                 animalSound.synth.volume.rampTo(volumeAnimal, 0.2);
                 
-                // Warning beeps - moderate frequency
-                if (currentTime - animalSound.lastWarningTime > 800) { // Every 800ms
-                    const warningFreq = 600 + Math.random() * 100;
-                    animalSound.warningSound.volume.value = -12;
-                    animalSound.warningSound.triggerAttackRelease(warningFreq, "0.2");
-                    animalSound.lastWarningTime = currentTime;
-                }
-                
-            } else if (distanceAnimal <= 5) {
-                // MODERATE DANGER: Animal in vicinity
-                if (!detectedAnimals.has(animalKey)) {
-                    setDetectedAnimals(prev => new Set([...prev, animalKey]));
-                    announceDanger('moderate', index);
-                    setMessage('⚠️ CAUTION: Animal detected in area.');
-                }
-                
-                if (!animalSound.isPlaying) {
-                    animalSound.synth.triggerAttack();
-                    animalSound.isPlaying = true;
-                }
-                // Quieter animal sounds
-                const volumeAnimal = -25 - distanceAnimal * 2;
-                animalSound.synth.volume.rampTo(volumeAnimal, 0.3);
-                
-                // Gentle warning tones - less frequent
-                if (currentTime - animalSound.lastWarningTime > 1500) { // Every 1.5 seconds
-                    const warningFreq = 400 + Math.random() * 50;
-                    animalSound.warningSound.volume.value = -18;
-                    animalSound.warningSound.triggerAttackRelease(warningFreq, "0.3");
-                    animalSound.lastWarningTime = currentTime;
-                }
                 
             } else {
-                // SAFE DISTANCE: No immediate danger
-                if (detectedAnimals.has(animalKey) && distanceAnimal > 6) {
-                    // Remove from detected when far enough away
+                // Animal is too far - stop sound
+                if (detectedAnimals.has(animalKey)) {
                     setDetectedAnimals(prev => {
                         const newSet = new Set(prev);
                         newSet.delete(animalKey);
                         return newSet;
                     });
-                    if (detectedAnimals.size === 1) { // This was the last detected animal
-                        setMessage('✓ Area clear. Continue exploring.');
+                    if (detectedAnimals.size === 1) {
+                        setMessage('✓ Area clear. Listen for animals...');
                     }
                 }
                 
                 if (animalSound.isPlaying) {
                     animalSound.synth.volume.rampTo(-Infinity, 0.5);
-                    animalSound.warningSound.volume.value = -Infinity;
                     setTimeout(() => {
                         if (animalSound.isPlaying) {
-                            animalSound.synth.triggerRelease();
-                            animalSound.isPlaying = false;
+                            try {
+                                animalSound.synth.stop();
+                                animalSound.isPlaying = false;
+                            } catch (error) {
+                                console.error('Error stopping wolf sound:', error);
+                                animalSound.isPlaying = false;
+                            }
                         }
                     }, 500);
                 }
             }
         });
 
-    }, [rabbitPos, hunterPos, exitPos, animalPositions, status, audioInitialized, synths, hunterSound, exitSound, animalSounds]);
+    }, [rabbitPos, animalPositions, status, audioInitialized, animalSounds, updateSpatialAudio, detectedAnimals, setDetectedAnimals, setMessage]);
 
 
     // --- Game Logic ---
@@ -442,7 +438,7 @@ export default function AudioMazeGame() {
             playSound('wall', 'C2', '0.2s');
         } else {
             playSound('move', 'C4', '0.1s');
-            playPlayerFootstep(); // Add player footstep sound
+            // Removed player footstep for cleaner spatial audio
             const newRabbitPos = { row, col };
             setRabbitPos(newRabbitPos);
 
@@ -472,24 +468,18 @@ export default function AudioMazeGame() {
         setMessage('Game restarted! Use arrow keys to move.');
         setDetectedAnimals(new Set()); // Reset detected animals
         
-        // Reset audio state
+        // Reset audio state - focus only on animal sounds
         if (audioInitialized.current) {
-            // Stop and recreate exit sound to prevent echo
-            if (exitSound.current.osc) {
-                try {
-                    exitSound.current.osc.stop();
-                } catch (e) {
-                    // Oscillator might already be stopped
-                }
-            }
-            exitSound.current.osc = new Tone.Oscillator(440, "sine").connect(exitSound.current.panner);
-            exitSound.current.osc.volume.value = -Infinity;
-            
             // Reset all animal sounds
             animalSounds.current.forEach(animalSound => {
                 if (animalSound.isPlaying) {
-                    animalSound.synth.triggerRelease();
-                    animalSound.isPlaying = false;
+                    try {
+                        animalSound.synth.stop();
+                        animalSound.isPlaying = false;
+                    } catch (error) {
+                        console.error('Error stopping wolf sound on restart:', error);
+                        animalSound.isPlaying = false;
+                    }
                 }
                 animalSound.lastWarningTime = 0;
             });
@@ -514,7 +504,9 @@ export default function AudioMazeGame() {
         switch (tile) {
             case 'X': return '🌲';
             case 'E': return '🏠';
-            case 'A': return '🐺';
+            case 'A': 
+                // Show wolf emoji for all animals - consistent visual
+                return '🐺';
             default: return '';
         }
     };
@@ -528,8 +520,11 @@ export default function AudioMazeGame() {
                     <p className="text-yellow-400 animate-pulse mt-2">Press any arrow key to start audio and begin.</p>
                 )}
                 <div className="mt-2 text-sm text-gray-400">
-                    <p>🐰 You • 👨‍🌾 Hunter • 🐺 Animals • 🏠 Exit • 🌲 Walls</p>
-                    <p>Listen for: Footsteps (hunter), Animal sounds, Exit beacon</p>
+                    <p>🐰 You • 👨‍🌾 Hunter • 🐺 Wolves • 🏠 Exit • 🌲 Walls</p>
+                    <p>Listen for: Wolf growls (with ENHANCED left/right positioning)</p>
+                    <p className="text-yellow-300 mt-1">🎧 HEADPHONES REQUIRED for clear left/right audio!</p>
+                    <p className="text-blue-300">🔊 Left ear = Wolf to your LEFT • Right ear = Wolf to your RIGHT</p>
+                    <p className="text-blue-300">Muffled = Behind you • Clear = In front of you</p>
                 </div>
             </div>
 
