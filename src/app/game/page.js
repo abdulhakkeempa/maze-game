@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import * as Tone from 'tone';
-import IntroductionPage from './IntroductionPage';
+import { useRouter } from 'next/navigation';
 
 // --- Game Configuration ---
 const MAZE_GRID = [
@@ -303,12 +303,10 @@ const useAudioEngine = () => {
     return { initializeAudio, synths, hunterSound, exitSound, waterSound, animalSounds, audioInitialized };
 };
 
-
 // --- Main Game Component ---
-export default function AudioMazeGame() {
-    // --- Page State ---
-    const [currentPage, setCurrentPage] = useState('intro'); // 'intro' or 'game'
-
+export default function GamePage() {
+    const router = useRouter();
+    
     // --- Game State ---
     const [rabbitPos, setRabbitPos] = useState(findStartPosition('R'));
     const [animalPositions] = useState(findAllAnimals());
@@ -586,14 +584,7 @@ export default function AudioMazeGame() {
     };
 
     const goToIntro = () => {
-        setCurrentPage('intro');
-        // Reset game state when going back to intro
-        setRabbitPos(findStartPosition('R'));
-        setStatus('playing');
-        setMessage('Use arrow keys to move. Find the exit!');
-        setDetectedAnimals(new Set());
-        
-        // Stop all audio
+        // Stop all audio before navigating
         if (audioInitialized.current) {
             if (waterSound.current.isPlaying) {
                 waterSound.current.volume.volume.rampTo(-Infinity, 0.5);
@@ -610,6 +601,7 @@ export default function AudioMazeGame() {
                 }
             });
         }
+        router.push('/');
     };
 
     useEffect(() => {
@@ -630,12 +622,6 @@ export default function AudioMazeGame() {
         }
     };
 
-    // --- Show Introduction Page ---
-    if (currentPage === 'intro') {
-        return <IntroductionPage onStartGame={() => setCurrentPage('game')} />;
-    }
-
-    // --- Main Game Page ---
     return (
         <div className="bg-black text-white min-h-screen flex flex-col items-center justify-center font-sans p-4">
             <div className="text-center mb-4">

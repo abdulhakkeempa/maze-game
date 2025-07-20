@@ -1,11 +1,8 @@
 'use client';
 
 import React, { useState, useCallback, useRef } from 'react';
-import { useRouter } from 'next/navigation';
 
-export default function IntroPage() {
-    const router = useRouter();
-    
+export default function IntroductionPage({ onStartGame }) {
     // --- Audio Instructions State ---
     const [isAudioPlaying, setIsAudioPlaying] = useState(false);
     const audioRef = useRef(null);
@@ -31,10 +28,6 @@ export default function IntroPage() {
         console.error('Error loading instructions audio');
         setIsAudioPlaying(false);
     }, []);
-
-    const handleStartGame = () => {
-        router.push('/game');
-    };
 
     return (
         <div className="bg-black text-white min-h-screen flex flex-col items-center justify-center font-sans p-4">
@@ -81,7 +74,7 @@ export default function IntroPage() {
                     
                     <button
                         className="px-8 py-4 font-bold text-xl rounded-lg shadow-lg border-4 transition-all transform bg-yellow-300 text-black border-white hover:bg-yellow-200 hover:scale-105"
-                        onClick={handleStartGame}
+                        onClick={onStartGame}
                         autoFocus
                     >
                         Start Game
